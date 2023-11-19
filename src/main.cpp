@@ -1,3 +1,4 @@
+#include "autodiff.hpp"
 #include <Eigen/Dense>
 #include <cmath>
 #include <fstream>
@@ -13,142 +14,6 @@
 #include <vector>
 using namespace std;
 
-template <class T> class ReverseTopologicalSort {
-public:
-	static std::vector<std::shared_ptr<T>>
-	reverseTopoSort(const std::shared_ptr<T>& startNode) {
-		std::vector<std::shared_ptr<T>> result;
-		std::unordered_set<std::shared_ptr<T>> visited;
-		std::stack<std::shared_ptr<T>> stack;
-
-		reverseTopoSortUtil(startNode, visited, stack);
-
-		while (!stack.empty()) {
-			result.push_back(stack.top());
-			stack.pop();
-		}
-
-		return result;
-	}
-
-private:
-	static void reverseTopoSortUtil(
-		const std::shared_ptr<T>& node,
-		std::unordered_set<std::shared_ptr<T>>& visited,
-		std::stack<std::shared_ptr<T>>& stack
-	) {
-		visited.insert(node);
-
-		for (const auto& parent : node->inputs) {
-			if (visited.find(parent) == visited.end()) {
-				reverseTopoSortUtil(parent, visited, stack);
-			}
-		}
-
-		stack.push(node);
-	}
-};
-template <typename T> struct BackwardAutoDiff {
-	typedef BackwardAutoDiff<T> Self;
-	enum OpTp {
-		Const,
-		Add,
-		// Sub,
-		Mul,
-		// Div,
-	};
-	T constInput;
-	vector<std::shared_ptr<BackwardAutoDiff<T>>> inputs;
-	std::optional<T> output;
-	const OpTp op;
-	std::optional<T> gradient;
-	BackwardAutoDiff(OpTp op) : op(op) {
-	}
-	BackwardAutoDiff(T val) : op(Const), constInput(val) {
-	}
-	static std::shared_ptr<Self> makeConst(T val) {
-		auto ret = std::make_shared<Self>(Const);
-		ret->constInput = val;
-		return ret;
-	}
-	friend std::shared_ptr<Self>
-	operator+(std::shared_ptr<Self> a, std::shared_ptr<BackwardAutoDiff> b) {
-		auto ret = std::make_shared<Self>(Add);
-		ret->inputs.push_back(a);
-		ret->inputs.push_back(b);
-		return ret;
-	}
-	friend std::shared_ptr<Self>
-	operator*(std::shared_ptr<Self> a, std::shared_ptr<BackwardAutoDiff> b) {
-		auto ret = std::make_shared<Self>(Mul);
-		ret->inputs.push_back(a);
-		ret->inputs.push_back(b);
-		return ret;
-	}
-
-	void forward() {
-		if (this->output.has_value()) {
-			return;
-		}
-		switch (this->op) {
-		case Const:
-			this->output = this->constInput;
-			break;
-		case Add:
-			this->inputs[0]->forward();
-			this->inputs[1]->forward();
-			this->output = this->inputs[0]->output.value() +
-			               this->inputs[1]->output.value();
-			break;
-		case Mul:
-			this->inputs[0]->forward();
-			this->inputs[1]->forward();
-			this->output = this->inputs[0]->output.value() *
-			               this->inputs[1]->output.value();
-			break;
-		}
-	}
-	static void backward(std::shared_ptr<Self> node) {
-		auto reversed = ReverseTopologicalSort<Self>::reverseTopoSort(node);
-		for (std::shared_ptr<Self>& node : reversed) {
-			for (std::shared_ptr<Self>& input : node->inputs) {
-				if (!input->gradient.has_value()) {
-					input->gradient = 0;
-				}
-				input->gradient.value();
-			}
-			if (!node->gradient.has_value()) {
-				node->gradient = 0;
-			}
-			switch (node->op) {
-			case Const:
-				break;
-			case Add:
-				node->inputs[0]->gradient.value() += node->gradient.value();
-				node->inputs[1]->gradient.value() += node->gradient.value();
-				break;
-			case Mul:
-				node->inputs[0]->gradient.value() +=
-					node->gradient.value() * node->inputs[1]->output.value();
-				node->inputs[1]->gradient.value() +=
-					node->gradient.value() * node->inputs[0]->output.value();
-				break;
-			}
-		}
-	}
-};
-
-// int main() {
-// 	auto x = BackwardAutoDiff<double>::makeConst(2);
-// 	auto y = BackwardAutoDiff<double>::makeConst(3);
-// 	auto z = x * x + x * y;
-// 	z->forward();
-// 	z->gradient = 1;
-// 	BackwardAutoDiff<double>::backward(z);
-// 	cout << z->output.value() << endl;
-// 	cout << x->gradient.value() << endl;
-// 	cout << y->gradient.value() << endl;
-// }
 const size_t state_size = 3;
 const size_t control_size = 1;
 const size_t measurement_size = 2;
@@ -229,6 +94,15 @@ struct TrajectoryPoint {
 	}
 };
 
+typedef std::shared_ptr<BackwardAutoDiff<double>> ADP;
+typedef BackwardAutoDiff<double> AD;
+// Eigen::Vector<ADP, state_size> state_transition(
+// 	Eigen::Vector<ADP, state_size> state,
+// 	Eigen::Vector<ADP, control_size> control
+// ) {
+// 	return F * state + G * control + w;
+// }
+
 std::vector<TrajectoryPoint> generate_rocket_trajectory(
 	double dt_sim, double motor_force, double motor_lifetime,
 	double gravity_down, double drag, double motor_stddev,
@@ -273,7 +147,7 @@ std::vector<TrajectoryPoint> generate_rocket_trajectory(
 		}
 	};
 	double lastTCheck = 0;
-	double tCheckDist = 0.5;
+	double tCheckDist = 1.0;
 	double recordInterval = dt;
 	double lastRecord = 0;
 	while (alt >= 0) {
@@ -285,20 +159,25 @@ std::vector<TrajectoryPoint> generate_rocket_trajectory(
 		} else {
 			acc -= drag_acc;
 		}
+		// double deltaV = acc * dt_sim;
+		double deltaV = cos(t) * dt_sim - dt_sim * 0.01;
 		if (t >= lastRecord + recordInterval) {
 			ret.push_back(TrajectoryPoint(
-				alt, alt + normals(gen), motor_force, t, acc + acc_normals(gen)
+				alt, alt + normals(gen), motor_force, t,
+				deltaV * dt_sim + acc_normals(gen)
 			));
 			lastRecord = t;
 		}
-		vel += acc * dt_sim;
+
+		vel += deltaV * 133;
 		alt += vel * dt_sim;
 
 		t += dt_sim;
 		if (t >= lastTCheck + tCheckDist) {
 			cout << "t: " << t << ", alt: " << alt << ", vel: " << vel
-				 << ", acc: " << acc << ", drag_acc: " << drag_acc << endl;
-			lastTCheck = t + tCheckDist;
+				 << ", acc: " << acc << ", drag_acc: " << drag_acc
+				 << ", dv: " << deltaV << endl;
+			lastTCheck = t;
 		}
 		if (t > 200) {
 			ret = {};
@@ -320,7 +199,7 @@ int main() {
 
 	int i = 0;
 	// since we're assuming the jerk is constant, we base the covariances off of
-	// that
+	// it
 
 	// Position is the third integral of jerk
 	double jerk_to_pos = std::pow(dt, 3) / 6;
@@ -354,9 +233,10 @@ int main() {
 		Eigen::Vector<double, control_size> control;
 		if (point.t < shutoffT) {
 			control = Eigen::Vector<double, control_size>({ { 0 } });
-		} else if (point.t < shutoffT + motorForce / shutoffRate) {
-			control = Eigen::Vector<double, control_size>({ { -shutoffRate *
-			                                                  motorForce } });
+			// } else if (point.t < shutoffT + motorForce / shutoffRate) {
+			// 	control = Eigen::Vector<double, control_size>({ { -shutoffRate *
+			// 	                                                  motorForce }
+			// });
 		} else {
 			control = Eigen::Vector<double, control_size>({ { 0 } });
 		}
@@ -425,8 +305,15 @@ int main() {
 	}
 	file.close();
 
-	// typedef std::shared_ptr<BackwardAutoDiff<double>> ADP;
-	// typedef BackwardAutoDiff<double> AD;
+	auto x = AD::makeConst(3.14 / 2 * 3);
+	ADP y = sin(x);
+
+	y->forward();
+	y->gradient = 1;
+	AD::backward(y);
+	cout << y->output.value() << endl;
+	cout << x->gradient.value() << endl;
+
 	//
 	// auto x2 = AD::makeConst(2);
 	// auto y2 = AD::makeConst(3);
