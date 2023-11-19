@@ -17,3 +17,4 @@ BreakConstructorInitializers: BeforeColon
 AlignAfterOpenBracket: BlockIndent
 AlignArrayOfStructures: Right
 Cpp11BracedListStyle: false
+AlwaysBreakTemplateDeclarations: Yes
