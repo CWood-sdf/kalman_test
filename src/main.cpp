@@ -103,7 +103,7 @@ Eigen::Vector<ADP, state_size> state_transition(
     auto dtad = AD::makeConst(dt);
     // jerk
     auto control0 = control(0);
-    auto jerk = (cos(control0) + AD::makeConst(-0.01)) * AD::makeConst(133);
+    auto jerk = control0;
     ret(0) = state(0) + state(1) * dtad +
              state(2) * dtad * dtad * AD::makeConst(0.5) +
              jerk * dtad * dtad * dtad * AD::makeConst(1.0 / 6.0);
@@ -168,17 +168,17 @@ std::vector<TrajectoryPoint> generate_rocket_trajectory(
     double tCheckDist = 1.0;
     double recordInterval = dt;
     double lastRecord = 0;
-    double acc = 0;
+    // double acc = 0;
     while (alt >= 0) {
-        // double motor_force = get_motor_force();
-        // double acc = motor_force - gravity_down;
-        // double drag_acc = std::abs(drag * vel * vel);
-        // if (vel < 0) {
-        //     acc += drag_acc;
-        // } else {
-        //     acc -= drag_acc;
-        // }
-        acc += (cos(t) - 0.01) * 133 * dt_sim;
+        double motor_force = get_motor_force();
+        double acc = motor_force - gravity_down;
+        double drag_acc = std::abs(drag * vel * vel);
+        if (vel < 0) {
+            acc += drag_acc;
+        } else {
+            acc -= drag_acc;
+        }
+        // acc += (cos(t) - 0.01) * 133 * dt_sim;
         double deltaV = acc;
         // double deltaV = (cos(t) - 0.01) * 133;
         if (t >= lastRecord + recordInterval) {
@@ -212,7 +212,7 @@ int main() {
     cout << std::fixed;
     cout << std::setprecision(2);
     auto shutoffT = 10;
-    auto shutoffRate = 0.1;
+    auto shutoffRate = 0.05;
     auto motorForce = 70;
     auto trajectory = generate_rocket_trajectory(
         0.00001, motorForce, shutoffT, 29.8, 0.1, 2.7, shutoffRate
@@ -228,20 +228,20 @@ int main() {
     double jerk_to_vel = std::pow(dt, 2) / 2;
     // Acceleration is the first integral of jerk
     double jerk_to_acc = dt;
-    double v_x = jerk_to_pos * jerk_to_pos;
-    double v_v = jerk_to_vel * jerk_to_vel;
-    double v_a = jerk_to_acc * jerk_to_acc;
-    double v_xv = jerk_to_pos * jerk_to_vel;
-    double v_xa = jerk_to_pos * jerk_to_acc;
-    double v_va = jerk_to_vel * jerk_to_acc;
-    // // the number multiplying Q is the only random number in the whole
+    double v_x = jerk_to_pos * jerk_to_pos;  // * dt / 7;
+    double v_v = jerk_to_vel * jerk_to_vel;  // * dt / 5;
+    double v_a = jerk_to_acc * jerk_to_acc;  // * dt / 3;
+    double v_xv = jerk_to_pos * jerk_to_vel; // * dt / 6;
+    double v_xa = jerk_to_pos * jerk_to_acc; // * dt / 4;
+    double v_va = jerk_to_vel * jerk_to_acc; // * dt / 2;
+    // the number multiplying Q is the only random number in the whole
     // program it is the standard deviation of jerk
     Q = Eigen::Matrix<double, state_size, state_size>({
             { v_x, v_xv, v_xa},
             {v_xv,  v_v, v_va},
             {v_xa, v_va,  v_a}
     }) *
-        pow(2.7, 2);
+        pow(5.7, 2);
     Eigen::Vector<double, state_size> predicted_state =
         Eigen::Vector<double, state_size>();
     Eigen::Matrix<double, state_size, state_size> predicted_P;
@@ -278,19 +278,19 @@ int main() {
     for (auto& point : trajectory) {
         // get our control input
         Eigen::Vector<ADP, control_size> control;
-        // if (point.t < shutoffT) {
-        //     control =
-        //         Eigen::Vector<ADP, control_size>({ { AD::makeConst(0) } });
-        // } else if (point.t < shutoffT + motorForce / shutoffRate) {
-        //     control = Eigen::Vector<ADP, control_size>(
-        //         { { AD::makeConst(-shutoffRate * motorForce) } }
-        //     );
-        // } else {
-        //     control =
-        //         Eigen::Vector<ADP, control_size>({ { AD::makeConst(0) } });
-        // }
-        control =
-            Eigen::Vector<ADP, control_size>({ { AD::makeConst(point.t) } });
+        if (point.t < shutoffT) {
+            control =
+                Eigen::Vector<ADP, control_size>({ { AD::makeConst(0) } });
+        } else if (point.t < shutoffT + motorForce / shutoffRate) {
+            control = Eigen::Vector<ADP, control_size>(
+                { { AD::makeConst(-shutoffRate * motorForce) } }
+            );
+        } else {
+            control =
+                Eigen::Vector<ADP, control_size>({ { AD::makeConst(0) } });
+        }
+        // control =
+        //     Eigen::Vector<ADP, control_size>({ { AD::makeConst(point.t) } });
 
         auto alt = point.measured_altitude;
         auto acc = point.measured_acceleration;
@@ -395,7 +395,7 @@ int main() {
          << abs(100 - meanOfSquErr / meanOfMeasErr * 100) << "%" << endl;
 
     auto file = ofstream();
-    file.open("./graph/js/data.js");
+    file.open("/mnt/c/Users/woodc/kalman_test/graph/js/data.js");
     double print_interval = 0.1;
     double last_print = 0;
 
