@@ -32,6 +32,8 @@ Eigen::Vector<double, state_size> w = Eigen::Vector<double, state_size>({
 });
 
 /// State covariance matrix
+/// Start at really high uncertainty, then it will decrease as we get more
+/// measurements
 Eigen::Matrix<double, state_size, state_size> P =
 	Eigen::Matrix<double, state_size, state_size>({
 		{100,   0,   0},
@@ -100,6 +102,7 @@ std::vector<TrajectoryPoint> generate_rocket_trajectory(
 	double motor_cuttoff_rate
 ) {
 	std::vector<TrajectoryPoint> ret;
+	// stuff to get normal distributions
 	std::random_device rd;
 	std::mt19937 gen(rd());
 	std::normal_distribution<double> normals =
@@ -109,12 +112,15 @@ std::vector<TrajectoryPoint> generate_rocket_trajectory(
 	std::normal_distribution<double> motor_noise =
 		std::normal_distribution<double>(0, motor_stddev);
 	double t = 0;
+	// state variables
 	double alt = 0.1;
 	double vel = 0;
 	bool force_checked = false;
 	auto get_motor_force = [&t, &motor_force, &motor_lifetime, &gen,
 	                        &motor_noise, motor_cuttoff_rate,
 	                        &force_checked]() {
+		// basically, we have a motor that starts at full force, then ramps down
+		// to 0
 		if (t < motor_lifetime) {
 			return motor_force + motor_noise(gen);
 		} else if (t < motor_lifetime + motor_force / motor_cuttoff_rate) {
@@ -150,6 +156,9 @@ std::vector<TrajectoryPoint> generate_rocket_trajectory(
 		} else {
 			acc -= drag_acc;
 		}
+
+		// very simple stuff, just integrate the acceleration to get the
+		// velocity and position
 		double deltaV = acc * dt_sim;
 		// double deltaV = cos(t) * dt_sim - dt_sim * 0.01;
 		if (t >= lastRecord + recordInterval) {
@@ -188,6 +197,7 @@ int main() {
 	);
 
 	int i = 0;
+
 	// since we're assuming the jerk is constant, we base the covariances off of
 	// it
 
@@ -211,6 +221,8 @@ int main() {
             {v_xa, v_va,  v_a}
     }) *
 	    pow(2.7, 2);
+
+	// Just predict the state
 	auto control = Eigen::Vector<double, control_size>({ { 0 } });
 	Eigen::Vector<double, state_size> predicted_state =
 		F * state + G * control + w;
@@ -230,6 +242,7 @@ int main() {
 			control = Eigen::Vector<double, control_size>({ { 0 } });
 		}
 
+		// obtain the measurement
 		auto alt = point.measured_altitude;
 		auto acc = point.measured_acceleration;
 		auto measurement = Eigen::Vector<double, measurement_size>({
@@ -243,10 +256,14 @@ int main() {
 		state =
 			predicted_state + kalman_gain * (measurement - H * predicted_state);
 
+		// calculate error
+		// In the real world, we don't know the actual altitude, but we can use
+		// this to see how well the kalman filter is doing
 		auto err = state(0) - point.actual_altitude;
 		meanOfSquErr += err * err;
 		auto measErr = point.measured_altitude - point.actual_altitude;
 		meanOfMeasErr += measErr * measErr;
+
 		// update the state covariance matrix
 		auto predict_p_help =
 			(Eigen::Matrix<double, state_size, state_size>::Identity() -
@@ -269,8 +286,9 @@ int main() {
 	cout << "Kalman improvement: " << 100 - meanOfSquErr / meanOfMeasErr * 100
 		 << "%" << endl;
 
+	// just print out all the data to a file
 	auto file = ofstream();
-	file.open("/mnt/c/Users/woodc/kalman_test/graph/js/data.js");
+	file.open("./graph/js/data.js");
 	double print_interval = 0.1;
 	double last_print = 0;
 
