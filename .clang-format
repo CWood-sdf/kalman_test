@@ -16,3 +16,4 @@ ConstructorInitializerIndentWidth: 2
 BreakConstructorInitializers: BeforeColon
 AlignAfterOpenBracket: BlockIndent
 AlignArrayOfStructures: Right
+Cpp11BracedListStyle: false

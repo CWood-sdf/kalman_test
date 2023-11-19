@@ -15,6 +15,7 @@ const double dt = 0.001;
 const double alt_stddev = 10;
 const double acc_stddev = 1;
 
+/// State vector
 Eigen::Vector<double, state_size> state = Eigen::Vector<double, state_size>({
 	{0, 0, 0}
 });
@@ -27,9 +28,9 @@ Eigen::Vector<double, state_size> w = Eigen::Vector<double, state_size>({
 /// State covariance matrix
 Eigen::Matrix<double, state_size, state_size> P =
 	Eigen::Matrix<double, state_size, state_size>({
-		{500, 500,   0},
-        {500, 500,   0},
-        {500,   0, 500}
+		{100,   0,   0},
+        {  0, 100,   0},
+        {  0,   0, 100}
 });
 
 /// State transition matrix
@@ -43,7 +44,7 @@ Eigen::Matrix<double, state_size, state_size> F =
 /// Control matrix
 Eigen::Matrix<double, state_size, control_size> G =
 	Eigen::Matrix<double, state_size, control_size>(
-		{{pow(dt, 3) / 6.0}, {pow(dt, 2) / 2.0}, {dt}}
+		{ { pow(dt, 3) / 6.0 }, { pow(dt, 2) / 2.0 }, { dt } }
 	);
 
 /// Base noise covariance matrix
@@ -211,21 +212,21 @@ int main() {
             {v_xa, v_va,  v_a}
     }) *
 	    pow(3.7, 2);
-	auto control = Eigen::Vector<double, control_size>({{0}});
+	auto control = Eigen::Vector<double, control_size>({ { 0 } });
 	Eigen::Vector<double, state_size> predicted_state =
 		F * state + G * control + w;
 	Eigen::Matrix<double, state_size, state_size> predicted_P =
 		F * P * F.transpose() + Q;
 	for (auto& point : trajectory) {
+		// get our control input
 		Eigen::Vector<double, control_size> control;
 		if (point.t < shutoffT) {
-			control = Eigen::Vector<double, control_size>({{0}});
+			control = Eigen::Vector<double, control_size>({ { 0 } });
 		} else if (point.t < shutoffT + motorForce / shutoffRate) {
-			control = Eigen::Vector<double, control_size>(
-				{{-shutoffRate * motorForce}}
-			);
+			control = Eigen::Vector<double, control_size>({ { -shutoffRate *
+			                                                  motorForce } });
 		} else {
-			control = Eigen::Vector<double, control_size>({{0}});
+			control = Eigen::Vector<double, control_size>({ { 0 } });
 		}
 
 		auto alt = point.measured_altitude;
@@ -234,18 +235,21 @@ int main() {
 			{alt, acc}
         });
 
+		// make kalman gain
 		auto kalman_gain = predicted_P * H.transpose() *
 		                   (H * predicted_P * H.transpose() + R).inverse();
-
+		// update the state using kalman gain
 		state =
 			predicted_state + kalman_gain * (measurement - H * predicted_state);
 
+		// update the state covariance matrix
 		auto predict_p_help =
 			(Eigen::Matrix<double, state_size, state_size>::Identity() -
 		     kalman_gain * H);
 		P = predict_p_help * predicted_P * predict_p_help.transpose() +
 		    kalman_gain * R * kalman_gain.transpose();
 
+		// predict next state
 		predicted_state = F * state + G * control + w;
 		// cout << predicted_state(0) << endl;
 		predicted_P = F * P * F.transpose() + Q;
