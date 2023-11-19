@@ -3,7 +3,8 @@
 #include <stack>
 #include <unordered_set>
 #include <vector>
-template <class T> class ReverseTopologicalSort {
+template <class T>
+class ReverseTopologicalSort {
 public:
 	static std::vector<std::shared_ptr<T>>
 	reverseTopoSort(const std::shared_ptr<T>& startNode) {
@@ -38,7 +39,8 @@ private:
 		stack.push(node);
 	}
 };
-template <typename T> struct BackwardAutoDiff {
+template <typename T>
+struct BackwardAutoDiff {
 	typedef BackwardAutoDiff<T> Self;
 	enum OpTp {
 		Const,
