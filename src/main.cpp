@@ -94,15 +94,6 @@ struct TrajectoryPoint {
 	}
 };
 
-typedef std::shared_ptr<BackwardAutoDiff<double>> ADP;
-typedef BackwardAutoDiff<double> AD;
-// Eigen::Vector<ADP, state_size> state_transition(
-// 	Eigen::Vector<ADP, state_size> state,
-// 	Eigen::Vector<ADP, control_size> control
-// ) {
-// 	return F * state + G * control + w;
-// }
-
 std::vector<TrajectoryPoint> generate_rocket_trajectory(
 	double dt_sim, double motor_force, double motor_lifetime,
 	double gravity_down, double drag, double motor_stddev,
@@ -159,17 +150,16 @@ std::vector<TrajectoryPoint> generate_rocket_trajectory(
 		} else {
 			acc -= drag_acc;
 		}
-		// double deltaV = acc * dt_sim;
-		double deltaV = cos(t) * dt_sim - dt_sim * 0.01;
+		double deltaV = acc * dt_sim;
+		// double deltaV = cos(t) * dt_sim - dt_sim * 0.01;
 		if (t >= lastRecord + recordInterval) {
 			ret.push_back(TrajectoryPoint(
-				alt, alt + normals(gen), motor_force, t,
-				deltaV * dt_sim + acc_normals(gen)
+				alt, alt + normals(gen), motor_force, t, acc + acc_normals(gen)
 			));
 			lastRecord = t;
 		}
 
-		vel += deltaV * 133;
+		vel += deltaV;
 		alt += vel * dt_sim;
 
 		t += dt_sim;
@@ -233,10 +223,9 @@ int main() {
 		Eigen::Vector<double, control_size> control;
 		if (point.t < shutoffT) {
 			control = Eigen::Vector<double, control_size>({ { 0 } });
-			// } else if (point.t < shutoffT + motorForce / shutoffRate) {
-			// 	control = Eigen::Vector<double, control_size>({ { -shutoffRate *
-			// 	                                                  motorForce }
-			// });
+		} else if (point.t < shutoffT + motorForce / shutoffRate) {
+			control = Eigen::Vector<double, control_size>({ { -shutoffRate *
+			                                                  motorForce } });
 		} else {
 			control = Eigen::Vector<double, control_size>({ { 0 } });
 		}
@@ -305,14 +294,14 @@ int main() {
 	}
 	file.close();
 
-	auto x = AD::makeConst(3.14 / 2 * 3);
-	ADP y = sin(x);
+	// auto x = AD::makeConst(3.14 / 2 * 3);
+	// ADP y = sin(x);
 
-	y->forward();
-	y->gradient = 1;
-	AD::backward(y);
-	cout << y->output.value() << endl;
-	cout << x->gradient.value() << endl;
+	// y->forward();
+	// y->gradient = 1;
+	// AD::backward(y);
+	// cout << y->output.value() << endl;
+	// cout << x->gradient.value() << endl;
 
 	//
 	// auto x2 = AD::makeConst(2);
