@@ -184,7 +184,7 @@ int main() {
 	auto shutoffRate = 0.1;
 	auto motorForce = 70;
 	auto trajectory = generate_rocket_trajectory(
-		0.00001, motorForce, shutoffT, 29.8, 0.1, 0, shutoffRate
+		0.00001, motorForce, shutoffT, 29.8, 0.1, 3.5, shutoffRate
 	);
 
 	int i = 0;
@@ -270,7 +270,7 @@ int main() {
 		 << "%" << endl;
 
 	auto file = ofstream();
-	file.open("./graph/js/data.js");
+	file.open("/mnt/c/Users/woodc/kalman_test/graph/js/data.js");
 	double print_interval = 0.1;
 	double last_print = 0;
 
