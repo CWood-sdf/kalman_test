@@ -103,12 +103,13 @@ Eigen::Vector<ADP, state_size> state_transition(
     auto dtad = AD::makeConst(dt);
     // jerk
     auto control0 = control(0);
+    auto jerk = (cos(control0) + AD::makeConst(-0.01)) * AD::makeConst(133);
     ret(0) = state(0) + state(1) * dtad +
              state(2) * dtad * dtad * AD::makeConst(0.5) +
-             control0 * dtad * dtad * dtad * AD::makeConst(1.0 / 6.0);
-    ret(1) = state(1) + state(2) * dtad +
-             control0 * dtad * dtad * AD::makeConst(0.5);
-    ret(2) = state(2) + control0 * dtad;
+             jerk * dtad * dtad * dtad * AD::makeConst(1.0 / 6.0);
+    ret(1) =
+        state(1) + state(2) * dtad + jerk * dtad * dtad * AD::makeConst(0.5);
+    ret(2) = state(2) + jerk * dtad;
     return ret;
 }
 Eigen::Vector<ADP, measurement_size>
@@ -167,15 +168,17 @@ std::vector<TrajectoryPoint> generate_rocket_trajectory(
     double tCheckDist = 1.0;
     double recordInterval = dt;
     double lastRecord = 0;
+    double acc = 0;
     while (alt >= 0) {
-        double motor_force = get_motor_force();
-        double acc = motor_force - gravity_down;
-        double drag_acc = std::abs(drag * vel * vel);
-        if (vel < 0) {
-            acc += drag_acc;
-        } else {
-            acc -= drag_acc;
-        }
+        // double motor_force = get_motor_force();
+        // double acc = motor_force - gravity_down;
+        // double drag_acc = std::abs(drag * vel * vel);
+        // if (vel < 0) {
+        //     acc += drag_acc;
+        // } else {
+        //     acc -= drag_acc;
+        // }
+        acc += (cos(t) - 0.01) * 133 * dt_sim;
         double deltaV = acc;
         // double deltaV = (cos(t) - 0.01) * 133;
         if (t >= lastRecord + recordInterval) {
@@ -275,17 +278,19 @@ int main() {
     for (auto& point : trajectory) {
         // get our control input
         Eigen::Vector<ADP, control_size> control;
-        if (point.t < shutoffT) {
-            control =
-                Eigen::Vector<ADP, control_size>({ { AD::makeConst(0) } });
-        } else if (point.t < shutoffT + motorForce / shutoffRate) {
-            control = Eigen::Vector<ADP, control_size>(
-                { { AD::makeConst(-shutoffRate * motorForce) } }
-            );
-        } else {
-            control =
-                Eigen::Vector<ADP, control_size>({ { AD::makeConst(0) } });
-        }
+        // if (point.t < shutoffT) {
+        //     control =
+        //         Eigen::Vector<ADP, control_size>({ { AD::makeConst(0) } });
+        // } else if (point.t < shutoffT + motorForce / shutoffRate) {
+        //     control = Eigen::Vector<ADP, control_size>(
+        //         { { AD::makeConst(-shutoffRate * motorForce) } }
+        //     );
+        // } else {
+        //     control =
+        //         Eigen::Vector<ADP, control_size>({ { AD::makeConst(0) } });
+        // }
+        control =
+            Eigen::Vector<ADP, control_size>({ { AD::makeConst(point.t) } });
 
         auto alt = point.measured_altitude;
         auto acc = point.measured_acceleration;
@@ -386,8 +391,8 @@ int main() {
          << endl;
     cout << "Mean of Measurement Error: " << meanOfMeasErr / trajectory.size()
          << endl;
-    cout << "Kalman improvement: " << 100 - meanOfSquErr / meanOfMeasErr * 100
-         << "%" << endl;
+    cout << "Kalman improvement: "
+         << abs(100 - meanOfSquErr / meanOfMeasErr * 100) << "%" << endl;
 
     auto file = ofstream();
     file.open("./graph/js/data.js");
