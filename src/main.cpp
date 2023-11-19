@@ -212,7 +212,7 @@ int main() {
     auto shutoffRate = 0.1;
     auto motorForce = 70;
     auto trajectory = generate_rocket_trajectory(
-        0.00001, motorForce, shutoffT, 29.8, 0.1, 0, shutoffRate
+        0.00001, motorForce, shutoffT, 29.8, 0.1, 2.7, shutoffRate
     );
 
     int i = 0;
@@ -239,34 +239,37 @@ int main() {
             {v_xa, v_va,  v_a}
     }) *
         pow(2.7, 2);
-    auto control = Eigen::Vector<ADP, control_size>({ { AD::makeConst(0) } });
-    auto state_ad = Eigen::Vector<ADP, state_size>();
-    for (size_t i = 0; i < state_size; i++) {
-        state_ad(i) = AD::makeConst(state(i));
-    }
-
-    Eigen::Vector<ADP, state_size> predicted_state_ad =
-        state_transition(state_ad, control);
     Eigen::Vector<double, state_size> predicted_state =
         Eigen::Vector<double, state_size>();
-    Eigen::Matrix<double, state_size, state_size> F =
-        Eigen::Matrix<double, state_size, state_size>();
-    cout << setprecision(9) << fixed;
-    // calculate expected state
-    for (size_t i = 0; i < state_size; i++) {
-        predicted_state_ad(i)->forward();
-        predicted_state_ad(i)->gradient = 1;
-        predicted_state(i) = predicted_state_ad(i)->output.value();
-        AD::backward(predicted_state_ad(i));
-        for (size_t j = 0; j < state_size; j++) {
-            F(i, j) = state_ad(j)->get_gradient();
+    Eigen::Matrix<double, state_size, state_size> predicted_P;
+    {
+        auto control =
+            Eigen::Vector<ADP, control_size>({ { AD::makeConst(0) } });
+        auto state_ad = Eigen::Vector<ADP, state_size>();
+        for (size_t i = 0; i < state_size; i++) {
+            state_ad(i) = AD::makeConst(state(i));
         }
-        predicted_state_ad(i)->reset();
+
+        Eigen::Vector<ADP, state_size> predicted_state_ad =
+            state_transition(state_ad, control);
+        Eigen::Matrix<double, state_size, state_size> F =
+            Eigen::Matrix<double, state_size, state_size>();
+        cout << setprecision(9) << fixed;
+        // calculate expected state
+        for (size_t i = 0; i < state_size; i++) {
+            predicted_state_ad(i)->forward();
+            predicted_state_ad(i)->gradient = 1;
+            predicted_state(i) = predicted_state_ad(i)->output.value();
+            AD::backward(predicted_state_ad(i));
+            for (size_t j = 0; j < state_size; j++) {
+                F(i, j) = state_ad(j)->get_gradient();
+            }
+            predicted_state_ad(i)->reset();
+        }
+        predicted_P = F * P * F.transpose() + Q;
     }
     // cout << F << endl;
 
-    Eigen::Matrix<double, state_size, state_size> predicted_P =
-        F * P * F.transpose() + Q;
     double meanOfSquErr = 0;
     double meanOfMeasErr = 0;
     for (auto& point : trajectory) {
@@ -341,13 +344,16 @@ int main() {
         P = predict_p_help * predicted_P * predict_p_help.transpose() +
             kalman_gain * R * kalman_gain.transpose();
 
+        Eigen::Vector<ADP, state_size> state_ad =
+            Eigen::Vector<ADP, state_size>();
         // predict next state
         for (size_t i = 0; i < state_size; i++) {
             state_ad(i) = AD::makeConst(state(i));
         }
         predicted_state_ad = state_transition(state_ad, control);
         predicted_state = Eigen::Vector<double, state_size>();
-        F = Eigen::Matrix<double, state_size, state_size>();
+        Eigen::Matrix<double, state_size, state_size> F =
+            Eigen::Matrix<double, state_size, state_size>();
         // calculate expected state
         // std::optional<int> a;
         // a.reset();
