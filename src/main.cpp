@@ -11,29 +11,29 @@ using namespace std;
 typedef std::shared_ptr<BackwardAutoDiff<double>> ADP;
 typedef BackwardAutoDiff<double> AD;
 
-const size_t state_size = 2;
+const size_t state_size = 3;
 const size_t control_size = 1;
-const size_t measurement_size = 1;
+const size_t measurement_size = 2;
 const double dt = 0.001;
 const double alt_stddev = 10;
 const double acc_stddev = 1;
 
 /// State vector
 Eigen::Vector<double, state_size> state = Eigen::Vector<double, state_size>({
-    {0, 0}
+    {0, 0, 0}
 });
 
 /// Process noise vector
 Eigen::Vector<double, state_size> w = Eigen::Vector<double, state_size>({
-    {0, 0}
+    {0, 0, 0}
 });
 
 /// State covariance matrix
 Eigen::Matrix<double, state_size, state_size> P =
     Eigen::Matrix<double, state_size, state_size>({
-        {100,   0},
-        {  0, 100},
- // {  0,   0, 100}
+        {100,   0,   0},
+        {  0, 100,   0},
+        {  0,   0, 100}
 });
 
 /// State transition matrix
@@ -67,9 +67,10 @@ Eigen::Matrix<double, state_size, state_size> Q =
 
 /// Measurement noise covariance matrix
 Eigen::Matrix<double, measurement_size, measurement_size> R =
-    Eigen::Matrix<double, measurement_size, measurement_size>(
-        { { alt_stddev * alt_stddev } }
-    );
+    Eigen::Matrix<double, measurement_size, measurement_size>({
+        {alt_stddev * alt_stddev,                      0},
+        {                      0, acc_stddev* acc_stddev}
+});
 
 struct TrajectoryPoint {
     double actual_altitude;
@@ -95,10 +96,19 @@ Eigen::Vector<ADP, state_size> state_transition(
 ) {
     Eigen::Vector<ADP, state_size> ret = Eigen::Vector<ADP, state_size>();
     // control(0) is t
-    ret(0) = state(0) + state(1) * AD::makeConst(dt);
-
-    auto deltaV = (cos(control(0)) + AD::makeConst(-0.01)) * AD::makeConst(133);
-    ret(1) = state(1) + deltaV * AD::makeConst(dt);
+    // ret(0) = state(0) + state(1) * AD::makeConst(dt);
+    //
+    // auto deltaV = (cos(control(0)) + AD::makeConst(-0.01)) *
+    // AD::makeConst(133); ret(1) = state(1) + deltaV * AD::makeConst(dt);
+    auto dtad = AD::makeConst(dt);
+    // jerk
+    auto control0 = control(0);
+    ret(0) = state(0) + state(1) * dtad +
+             state(2) * dtad * dtad * AD::makeConst(0.5) +
+             control0 * dtad * dtad * dtad * AD::makeConst(1.0 / 6.0);
+    ret(1) = state(1) + state(2) * dtad +
+             control0 * dtad * dtad * AD::makeConst(0.5);
+    ret(2) = state(2) + control0 * dtad;
     return ret;
 }
 Eigen::Vector<ADP, measurement_size>
@@ -106,6 +116,7 @@ state_expection(Eigen::Vector<ADP, state_size> state) {
     Eigen::Vector<ADP, measurement_size> ret =
         Eigen::Vector<ADP, measurement_size>();
     ret(0) = state(0);
+    ret(1) = state(2);
     return ret;
 }
 
@@ -157,20 +168,20 @@ std::vector<TrajectoryPoint> generate_rocket_trajectory(
     double recordInterval = dt;
     double lastRecord = 0;
     while (alt >= 0) {
-        // double motor_force = get_motor_force();
-        // double acc = motor_force - gravity_down;
-        // double drag_acc = std::abs(drag * vel * vel);
-        // if (vel < 0) {
-        // 	acc += drag_acc;
-        // } else {
-        // 	acc -= drag_acc;
-        // }
-        // double deltaV = acc * dt_sim;
-        double deltaV = (cos(t) - 0.01) * 133;
+        double motor_force = get_motor_force();
+        double acc = motor_force - gravity_down;
+        double drag_acc = std::abs(drag * vel * vel);
+        if (vel < 0) {
+            acc += drag_acc;
+        } else {
+            acc -= drag_acc;
+        }
+        double deltaV = acc;
+        // double deltaV = (cos(t) - 0.01) * 133;
         if (t >= lastRecord + recordInterval) {
             ret.push_back(TrajectoryPoint(
                 alt, alt + normals(gen), motor_force, t,
-                deltaV * dt_sim + acc_normals(gen)
+                deltaV + acc_normals(gen)
             ));
             lastRecord = t;
         }
@@ -209,22 +220,23 @@ int main() {
     // it
 
     // Position is the third integral of jerk
-    // double jerk_to_pos = std::pow(dt, 3) / 6;
-    // // Velocity is the second integral of jerk
-    // double jerk_to_vel = std::pow(dt, 2) / 2;
-    // // Acceleration is the first integral of jerk
-    // double jerk_to_acc = dt;
-    // double v_x = jerk_to_pos * jerk_to_pos;
-    // double v_v = jerk_to_vel * jerk_to_vel;
-    // double v_a = jerk_to_acc * jerk_to_acc;
-    // double v_xv = jerk_to_pos * jerk_to_vel;
-    // double v_xa = jerk_to_pos * jerk_to_acc;
-    // double v_va = jerk_to_vel * jerk_to_acc;
+    double jerk_to_pos = std::pow(dt, 3) / 6;
+    // Velocity is the second integral of jerk
+    double jerk_to_vel = std::pow(dt, 2) / 2;
+    // Acceleration is the first integral of jerk
+    double jerk_to_acc = dt;
+    double v_x = jerk_to_pos * jerk_to_pos;
+    double v_v = jerk_to_vel * jerk_to_vel;
+    double v_a = jerk_to_acc * jerk_to_acc;
+    double v_xv = jerk_to_pos * jerk_to_vel;
+    double v_xa = jerk_to_pos * jerk_to_acc;
+    double v_va = jerk_to_vel * jerk_to_acc;
     // // the number multiplying Q is the only random number in the whole
     // program it is the standard deviation of jerk
     Q = Eigen::Matrix<double, state_size, state_size>({
-            {1, 1},
-            {1, 1},
+            { v_x, v_xv, v_xa},
+            {v_xv,  v_v, v_va},
+            {v_xa, v_va,  v_a}
     }) *
         pow(2.7, 2);
     auto control = Eigen::Vector<ADP, control_size>({ { AD::makeConst(0) } });
@@ -239,17 +251,19 @@ int main() {
         Eigen::Vector<double, state_size>();
     Eigen::Matrix<double, state_size, state_size> F =
         Eigen::Matrix<double, state_size, state_size>();
+    cout << setprecision(9) << fixed;
     // calculate expected state
     for (size_t i = 0; i < state_size; i++) {
-        predicted_state_ad(i)->reset();
         predicted_state_ad(i)->forward();
         predicted_state_ad(i)->gradient = 1;
         predicted_state(i) = predicted_state_ad(i)->output.value();
         AD::backward(predicted_state_ad(i));
         for (size_t j = 0; j < state_size; j++) {
-            F(j, i) = state_ad(j)->get_gradient();
+            F(i, j) = state_ad(j)->get_gradient();
         }
+        predicted_state_ad(i)->reset();
     }
+    // cout << F << endl;
 
     Eigen::Matrix<double, state_size, state_size> predicted_P =
         F * P * F.transpose() + Q;
@@ -258,17 +272,22 @@ int main() {
     for (auto& point : trajectory) {
         // get our control input
         Eigen::Vector<ADP, control_size> control;
-        control =
-            Eigen::Vector<ADP, control_size>({ { AD::makeConst(point.t) } });
-        // } else if (point.t < shutoffT + motorForce / shutoffRate) {
-        // 	control = Eigen::Vector<double, control_size>({ { -shutoffRate *
-        // 	                                                  motorForce }
-        // });
-        // }
+        if (point.t < shutoffT) {
+            control =
+                Eigen::Vector<ADP, control_size>({ { AD::makeConst(0) } });
+        } else if (point.t < shutoffT + motorForce / shutoffRate) {
+            control = Eigen::Vector<ADP, control_size>(
+                { { AD::makeConst(-shutoffRate * motorForce) } }
+            );
+        } else {
+            control =
+                Eigen::Vector<ADP, control_size>({ { AD::makeConst(0) } });
+        }
 
         auto alt = point.measured_altitude;
-        // auto acc = point.measured_acceleration;
-        auto measurement = Eigen::Vector<double, measurement_size>({ { alt } });
+        auto acc = point.measured_acceleration;
+        auto measurement =
+            Eigen::Vector<double, measurement_size>({ { alt }, { acc } });
 
         Eigen::Vector<ADP, state_size> predicted_state_ad =
             Eigen::Vector<ADP, state_size>();
@@ -285,7 +304,6 @@ int main() {
             Eigen::Matrix<double, measurement_size, state_size>();
         // calculate expected state
         for (size_t i = 0; i < measurement_size; i++) {
-            expected_state_ad(i)->reset();
             expected_state_ad(i)->forward();
             expected_state_ad(i)->gradient = 1;
             expected_state(i) = expected_state_ad(i)->output.value();
@@ -293,6 +311,7 @@ int main() {
             for (size_t j = 0; j < state_size; j++) {
                 H(i, j) = predicted_state_ad(j)->get_gradient();
             }
+            expected_state_ad(i)->reset();
         }
 
         Eigen::Vector<double, measurement_size> residual =
@@ -313,15 +332,25 @@ int main() {
         auto predict_p_help =
             (Eigen::Matrix<double, state_size, state_size>::Identity() -
              kalman_gain * H);
+        // if (i == 0) {
+        //     cout << H << endl;
+        // }
         // P = predict_p_help * predicted_P * predict_p_help.transpose() +
         //     kalman_gain * R * kalman_gain.transpose();
-        P = predict_p_help * predicted_P;
+        // P = predict_p_help * predicted_P;
+        P = predict_p_help * predicted_P * predict_p_help.transpose() +
+            kalman_gain * R * kalman_gain.transpose();
 
         // predict next state
+        for (size_t i = 0; i < state_size; i++) {
+            state_ad(i) = AD::makeConst(state(i));
+        }
         predicted_state_ad = state_transition(state_ad, control);
         predicted_state = Eigen::Vector<double, state_size>();
         F = Eigen::Matrix<double, state_size, state_size>();
         // calculate expected state
+        // std::optional<int> a;
+        // a.reset();
         for (size_t i = 0; i < state_size; i++) {
             predicted_state_ad(i)->reset();
             predicted_state_ad(i)->forward();
@@ -329,10 +358,16 @@ int main() {
             predicted_state(i) = predicted_state_ad(i)->output.value();
             AD::backward(predicted_state_ad(i));
             for (size_t j = 0; j < state_size; j++) {
-                F(j, i) = state_ad(j)->gradient.value();
+                F(i, j) = state_ad(j)->get_gradient();
             }
+            predicted_state_ad(i)->reset();
         }
 
+        // auto predict_p_help =
+        // 	(Eigen::Matrix<double, state_size, state_size>::Identity() -
+        //      kalman_gain * H);
+        // P = predict_p_help * predicted_P * predict_p_help.transpose() +
+        //     kalman_gain * R * kalman_gain.transpose();
         predicted_P = F * P * F.transpose() + Q;
         // predicted_state = F * state + G * control + w;
         // cout << predicted_state(0) << endl;
