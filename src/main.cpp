@@ -408,7 +408,7 @@ int main() {
          << abs(100 - meanOfSquErr / meanOfMeasErr * 100) << "%" << endl;
 
     auto file = ofstream();
-    file.open("/mnt/c/Users/woodc/kalman_test/graph/js/data.js");
+    file.open("./graph/js/data.js");
     double print_interval = 0.1;
     double last_print = 0;
 
