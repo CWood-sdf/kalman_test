@@ -4,6 +4,8 @@
 #include <stack>
 #include <unordered_set>
 #include <vector>
+
+// This is a reverse topological sort written by chatgpt for the autodiff
 template <class T> class ReverseTopologicalSort {
 public:
     static std::vector<std::shared_ptr<T>>
@@ -39,6 +41,8 @@ private:
         stack.push(node);
     }
 };
+
+// Class for backwards autodiff
 template <typename T> struct BackwardAutoDiff {
     typedef BackwardAutoDiff<T> Self;
     enum OpTp {

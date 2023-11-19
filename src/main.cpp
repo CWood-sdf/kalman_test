@@ -90,6 +90,9 @@ struct TrajectoryPoint {
     }
 };
 
+/// For extended kalman filter, we need a state transition function that is
+/// differentiable, that's y it accepts autodiff types, not numbers
+/// This corresponds to the F and G matrices in the linear version
 Eigen::Vector<ADP, state_size> state_transition(
     Eigen::Vector<ADP, state_size> state,
     Eigen::Vector<ADP, control_size> control
@@ -112,8 +115,11 @@ Eigen::Vector<ADP, state_size> state_transition(
     ret(2) = state(2) + jerk * dtad;
     return ret;
 }
+
+/// For extended kalman filter, we need a measurement function, not a matrix
+/// This corresponds to the H matrix in the linear version
 Eigen::Vector<ADP, measurement_size>
-state_expection(Eigen::Vector<ADP, state_size> state) {
+expect_measurement(Eigen::Vector<ADP, state_size> state) {
     Eigen::Vector<ADP, measurement_size> ret =
         Eigen::Vector<ADP, measurement_size>();
     ret(0) = state(0);
@@ -246,6 +252,7 @@ int main() {
         Eigen::Vector<double, state_size>();
     Eigen::Matrix<double, state_size, state_size> predicted_P;
     {
+        // All the autodiff is a bit much code
         auto control =
             Eigen::Vector<ADP, control_size>({ { AD::makeConst(0) } });
         auto state_ad = Eigen::Vector<ADP, state_size>();
@@ -260,13 +267,18 @@ int main() {
         cout << setprecision(9) << fixed;
         // calculate expected state
         for (size_t i = 0; i < state_size; i++) {
+            // Calculate the actual result of the matrix multiplication
             predicted_state_ad(i)->forward();
             predicted_state_ad(i)->gradient = 1;
+            // Store the result in the predicted state
             predicted_state(i) = predicted_state_ad(i)->output.value();
+            // Calculate the gradient of the output with respect to the input
             AD::backward(predicted_state_ad(i));
             for (size_t j = 0; j < state_size; j++) {
+                // Store the gradient in the F matrix (AKA the jacobian)
                 F(i, j) = state_ad(j)->get_gradient();
             }
+            // Reset the autodiff
             predicted_state_ad(i)->reset();
         }
         predicted_P = F * P * F.transpose() + Q;
@@ -292,6 +304,7 @@ int main() {
         // control =
         //     Eigen::Vector<ADP, control_size>({ { AD::makeConst(point.t) } });
 
+        // Get our measurement
         auto alt = point.measured_altitude;
         auto acc = point.measured_acceleration;
         auto measurement =
@@ -303,7 +316,7 @@ int main() {
             predicted_state_ad(i) = AD::makeConst(predicted_state(i));
         }
         Eigen::Vector<ADP, measurement_size> expected_state_ad =
-            state_expection(predicted_state_ad);
+            expect_measurement(predicted_state_ad);
 
         Eigen::Vector<double, measurement_size> expected_state =
             Eigen::Vector<double, measurement_size>();
