@@ -1,1 +1,4 @@
 -Ieigen
+-Wall
+-Wpedantic
+-std=c++20
