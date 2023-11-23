@@ -103,86 +103,86 @@ std::vector<TrajectoryPoint> generate_rocket_trajectory(
 ) {
 	std::vector<TrajectoryPoint> ret;
 	// stuff to get normal distributions
-	std::random_device rd;
-	std::mt19937 gen(rd());
-	std::normal_distribution<double> normals =
-		std::normal_distribution<double>(0, alt_stddev);
-	std::normal_distribution<double> acc_normals =
-		std::normal_distribution<double>(0, acc_stddev);
-	std::normal_distribution<double> motor_noise =
-		std::normal_distribution<double>(0, motor_stddev);
-	double t = 0;
-	// state variables
-	double alt = 0.1;
-	double vel = 0;
-	bool force_checked = false;
-	auto get_motor_force = [&t, &motor_force, &motor_lifetime, &gen,
-	                        &motor_noise, motor_cuttoff_rate,
-	                        &force_checked]() {
-		// basically, we have a motor that starts at full force, then ramps down
-		// to 0
-		if (t < motor_lifetime) {
-			return motor_force + motor_noise(gen);
-		} else if (t < motor_lifetime + motor_force / motor_cuttoff_rate) {
-			double new_force =
-				motor_force * (1 - (motor_cuttoff_rate * (t - motor_lifetime)));
-			if (new_force < 0) {
-				new_force = 0;
-			}
-			if (new_force > motor_force) {
-				new_force = 0;
-				if (!force_checked) {
-					cout << "Motor force is too high, "
-							" motor will never cut off "
-						 << endl;
-					force_checked = true;
-				}
-			}
-			return new_force + motor_noise(gen) * new_force / motor_force;
-		} else {
-			return 0.0;
-		}
-	};
-	double lastTCheck = 0;
-	double tCheckDist = 1.0;
-	double recordInterval = dt;
-	double lastRecord = 0;
-	while (alt >= 0) {
-		double motor_force = get_motor_force();
-		double acc = motor_force - gravity_down;
-		double drag_acc = std::abs(drag * vel * vel);
-		if (vel < 0) {
-			acc += drag_acc;
-		} else {
-			acc -= drag_acc;
-		}
-
-		// very simple stuff, just integrate the acceleration to get the
-		// velocity and position
-		double deltaV = acc * dt_sim;
-		// double deltaV = cos(t) * dt_sim - dt_sim * 0.01;
-		if (t >= lastRecord + recordInterval) {
-			ret.push_back(TrajectoryPoint(
-				alt, alt + normals(gen), motor_force, t, acc + acc_normals(gen)
-			));
-			lastRecord = t;
-		}
-
-		vel += deltaV;
-		alt += vel * dt_sim;
-
-		t += dt_sim;
-		if (t >= lastTCheck + tCheckDist) {
-			cout << "t: " << t << ", alt: " << alt << ", vel: " << vel
-				 << ", acc: " << acc << ", drag_acc: " << drag_acc
-				 << ", dv: " << deltaV << endl;
-			lastTCheck = t;
-		}
-		if (t > 200) {
-			ret = {};
-			break;
-		}
-	}
+	// std::random_device rd;
+	// std::mt19937 gen(rd());
+	// std::normal_distribution<double> normals =
+	// 	std::normal_distribution<double>(0, alt_stddev);
+	// std::normal_distribution<double> acc_normals =
+	// 	std::normal_distribution<double>(0, acc_stddev);
+	// std::normal_distribution<double> motor_noise =
+	// 	std::normal_distribution<double>(0, motor_stddev);
+	// double t = 0;
+	// // state variables
+	// double alt = 0.1;
+	// double vel = 0;
+	// bool force_checked = false;
+	// auto get_motor_force = [&t, &motor_force, &motor_lifetime, &gen,
+	//                         &motor_noise, motor_cuttoff_rate,
+	//                         &force_checked]() {
+	// 	// basically, we have a motor that starts at full force, then ramps down
+	// 	// to 0
+	// 	if (t < motor_lifetime) {
+	// 		return motor_force + motor_noise(gen);
+	// 	} else if (t < motor_lifetime + motor_force / motor_cuttoff_rate) {
+	// 		double new_force =
+	// 			motor_force * (1 - (motor_cuttoff_rate * (t - motor_lifetime)));
+	// 		if (new_force < 0) {
+	// 			new_force = 0;
+	// 		}
+	// 		if (new_force > motor_force) {
+	// 			new_force = 0;
+	// 			if (!force_checked) {
+	// 				cout << "Motor force is too high, "
+	// 						" motor will never cut off "
+	// 					 << endl;
+	// 				force_checked = true;
+	// 			}
+	// 		}
+	// 		return new_force + motor_noise(gen) * new_force / motor_force;
+	// 	} else {
+	// 		return 0.0;
+	// 	}
+	// };
+	// double lastTCheck = 0;
+	// double tCheckDist = 1.0;
+	// double recordInterval = dt;
+	// double lastRecord = 0;
+	// while (alt >= 0) {
+	// 	double motor_force = get_motor_force();
+	// 	double acc = motor_force - gravity_down;
+	// 	double drag_acc = std::abs(drag * vel * vel);
+	// 	if (vel < 0) {
+	// 		acc += drag_acc;
+	// 	} else {
+	// 		acc -= drag_acc;
+	// 	}
+	//
+	// 	// very simple stuff, just integrate the acceleration to get the
+	// 	// velocity and position
+	// 	double deltaV = acc * dt_sim;
+	// 	// double deltaV = cos(t) * dt_sim - dt_sim * 0.01;
+	// 	if (t >= lastRecord + recordInterval) {
+	// 		ret.push_back(TrajectoryPoint(
+	// 			alt, alt + normals(gen), motor_force, t, acc + acc_normals(gen)
+	// 		));
+	// 		lastRecord = t;
+	// 	}
+	//
+	// 	vel += deltaV;
+	// 	alt += vel * dt_sim;
+	//
+	// 	t += dt_sim;
+	// 	if (t >= lastTCheck + tCheckDist) {
+	// 		cout << "t: " << t << ", alt: " << alt << ", vel: " << vel
+	// 			 << ", acc: " << acc << ", drag_acc: " << drag_acc
+	// 			 << ", dv: " << deltaV << endl;
+	// 		lastTCheck = t;
+	// 	}
+	// 	if (t > 200) {
+	// 		ret = {};
+	// 		break;
+	// 	}
+	// }
 	return ret;
 }
 
