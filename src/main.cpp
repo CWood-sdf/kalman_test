@@ -11,6 +11,174 @@ using namespace std;
 typedef std::shared_ptr<BackwardAutoDiff<double>> ADP;
 typedef BackwardAutoDiff<double> AD;
 
+template <
+    const size_t state_size, const size_t control_size,
+    const size_t measurement_size>
+struct ExtendedKalmanFilter {
+
+    Eigen::Vector<double, state_size> state =
+        Eigen::Vector<double, state_size>();
+
+    /// Process noise vector
+    Eigen::Vector<double, state_size> w = Eigen::Vector<double, state_size>();
+
+    /// State covariance matrix
+    Eigen::Matrix<double, state_size, state_size> P =
+        Eigen::Matrix<double, state_size, state_size>();
+
+    /// Process noise covariance matrix
+    Eigen::Matrix<double, state_size, state_size> Q =
+        Eigen::Matrix<double, state_size, state_size>();
+
+    /// Measurement noise covariance matrix
+    Eigen::Matrix<double, measurement_size, measurement_size> R =
+        Eigen::Matrix<double, measurement_size, measurement_size>();
+    Eigen::Vector<ADP, state_size> (*state_transition)(
+        Eigen::Vector<ADP, state_size> state,
+        Eigen::Vector<ADP, control_size> control
+    );
+    Eigen::Vector<ADP, measurement_size> (*expect_measurement)(
+        Eigen::Vector<ADP, state_size> state
+    );
+
+    Eigen::Vector<double, state_size> predicted_state =
+        Eigen::Vector<double, state_size>();
+    Eigen::Matrix<double, state_size, state_size> predicted_P;
+    ExtendedKalmanFilter(
+        Eigen::Vector<double, state_size> state,
+        Eigen::Matrix<double, state_size, state_size> P,
+        Eigen::Matrix<double, state_size, state_size> Q,
+        Eigen::Matrix<double, measurement_size, measurement_size> R,
+        Eigen::Vector<ADP, state_size> (*state_transition)(
+            Eigen::Vector<ADP, state_size> state,
+            Eigen::Vector<ADP, control_size> control
+        ),
+        Eigen::Vector<ADP, measurement_size> (*expect_measurement)(
+            Eigen::Vector<ADP, state_size> state
+        ),
+        Eigen::Vector<ADP, control_size> control
+    )
+      : state(state), P(P), Q(Q), R(R), state_transition(state_transition),
+        expect_measurement(expect_measurement) {
+        auto state_ad = Eigen::Vector<ADP, state_size>();
+        for (size_t i = 0; i < state_size; i++) {
+            state_ad(i) = AD::makeConst(state(i));
+        }
+
+        Eigen::Vector<ADP, state_size> predicted_state_ad =
+            state_transition(state_ad, control);
+        Eigen::Matrix<double, state_size, state_size> F =
+            Eigen::Matrix<double, state_size, state_size>();
+        cout << setprecision(9) << fixed;
+        // calculate expected state
+        for (size_t i = 0; i < state_size; i++) {
+            // Calculate the actual result of the matrix multiplication
+            predicted_state_ad(i)->forward();
+            predicted_state_ad(i)->gradient = 1;
+            // Store the result in the predicted state
+            predicted_state(i) = predicted_state_ad(i)->output.value();
+            // Calculate the gradient of the output with respect to the
+            // input
+            AD::backward(predicted_state_ad(i));
+            for (size_t j = 0; j < state_size; j++) {
+                // Store the gradient in the F matrix (AKA the jacobian)
+                F(i, j) = state_ad(j)->get_gradient();
+            }
+            // Reset the autodiff
+            predicted_state_ad(i)->reset();
+        }
+        predicted_P = F * P * F.transpose() + Q;
+    }
+    void update(
+        Eigen::Vector<ADP, control_size> control,
+        Eigen::Vector<double, measurement_size> measurement
+    ) {
+        Eigen::Vector<ADP, state_size> predicted_state_ad =
+            Eigen::Vector<ADP, state_size>();
+        for (size_t i = 0; i < state_size; i++) {
+            predicted_state_ad(i) = AD::makeConst(predicted_state(i));
+        }
+        Eigen::Vector<ADP, measurement_size> expected_state_ad =
+            expect_measurement(predicted_state_ad);
+
+        Eigen::Vector<double, measurement_size> expected_state =
+            Eigen::Vector<double, measurement_size>();
+
+        Eigen::Matrix<double, measurement_size, state_size> H =
+            Eigen::Matrix<double, measurement_size, state_size>();
+        // calculate expected state
+        for (size_t i = 0; i < measurement_size; i++) {
+            expected_state_ad(i)->forward();
+            expected_state_ad(i)->gradient = 1;
+            expected_state(i) = expected_state_ad(i)->output.value();
+            AD::backward(expected_state_ad(i));
+            for (size_t j = 0; j < state_size; j++) {
+                H(i, j) = predicted_state_ad(j)->get_gradient();
+            }
+            expected_state_ad(i)->reset();
+        }
+
+        Eigen::Vector<double, measurement_size> residual =
+            measurement - expected_state;
+
+        auto residual_covariance = H * predicted_P * H.transpose() + R;
+        // make kalman gain
+        auto kalman_gain =
+            predicted_P * H.transpose() * residual_covariance.inverse();
+        // update the state using kalman gain
+        state = predicted_state + kalman_gain * residual;
+
+        // auto err = state(0) - point.actual_altitude;
+        // meanOfSquErr += err * err;
+        // auto measErr = point.measured_altitude - point.actual_altitude;
+        // meanOfMeasErr += measErr * measErr;
+        // update the state covariance matrix
+        auto predict_p_help =
+            (Eigen::Matrix<double, state_size, state_size>::Identity() -
+             kalman_gain * H);
+        // if (i == 0) {
+        //     cout << H << endl;
+        // }
+        // P = predict_p_help * predicted_P * predict_p_help.transpose() +
+        //     kalman_gain * R * kalman_gain.transpose();
+        // P = predict_p_help * predicted_P;
+        P = predict_p_help * predicted_P * predict_p_help.transpose() +
+            kalman_gain * R * kalman_gain.transpose();
+
+        Eigen::Vector<ADP, state_size> state_ad =
+            Eigen::Vector<ADP, state_size>();
+        // predict next state
+        for (size_t i = 0; i < state_size; i++) {
+            state_ad(i) = AD::makeConst(state(i));
+        }
+        predicted_state_ad = state_transition(state_ad, control);
+        predicted_state = Eigen::Vector<double, state_size>();
+        Eigen::Matrix<double, state_size, state_size> F =
+            Eigen::Matrix<double, state_size, state_size>();
+        // calculate expected state
+        // std::optional<int> a;
+        // a.reset();
+        for (size_t i = 0; i < state_size; i++) {
+            predicted_state_ad(i)->reset();
+            predicted_state_ad(i)->forward();
+            predicted_state_ad(i)->gradient = 1;
+            predicted_state(i) = predicted_state_ad(i)->output.value();
+            AD::backward(predicted_state_ad(i));
+            for (size_t j = 0; j < state_size; j++) {
+                F(i, j) = state_ad(j)->get_gradient();
+            }
+            predicted_state_ad(i)->reset();
+        }
+
+        // auto predict_p_help =
+        // 	(Eigen::Matrix<double, state_size, state_size>::Identity() -
+        //      kalman_gain * H);
+        // P = predict_p_help * predicted_P * predict_p_help.transpose() +
+        //     kalman_gain * R * kalman_gain.transpose();
+        predicted_P = F * P * F.transpose() + Q;
+    }
+};
+
 const size_t state_size = 3;
 const size_t control_size = 1;
 const size_t measurement_size = 2;
@@ -46,7 +214,8 @@ Eigen::Matrix<double, state_size, state_size> P =
 /// Control matrix
 // Eigen::Matrix<double, state_size, control_size> G =
 // 	Eigen::Matrix<double, state_size, control_size>({ { pow(dt, 3) / 6.0 },
-//                                                       { pow(dt, 2) / 2.0 }
+//                                                       { pow(dt, 2) / 2.0
+//                                                       }
 //                                                       });
 
 /// Base noise covariance matrix
@@ -225,8 +394,8 @@ int main() {
     );
 
     int i = 0;
-    // since we're assuming the jerk is constant, we base the covariances off of
-    // it
+    // since we're assuming the jerk is constant, we base the covariances
+    // off of it
 
     // Position is the third integral of jerk
     double jerk_to_pos = std::pow(dt, 3) / 6;
@@ -248,41 +417,10 @@ int main() {
             {v_xa, v_va,  v_a}
     }) *
         pow(5.7, 2);
-    Eigen::Vector<double, state_size> predicted_state =
-        Eigen::Vector<double, state_size>();
-    Eigen::Matrix<double, state_size, state_size> predicted_P;
-    {
-        // All the autodiff is a bit much code
-        auto control =
-            Eigen::Vector<ADP, control_size>({ { AD::makeConst(0) } });
-        auto state_ad = Eigen::Vector<ADP, state_size>();
-        for (size_t i = 0; i < state_size; i++) {
-            state_ad(i) = AD::makeConst(state(i));
-        }
-
-        Eigen::Vector<ADP, state_size> predicted_state_ad =
-            state_transition(state_ad, control);
-        Eigen::Matrix<double, state_size, state_size> F =
-            Eigen::Matrix<double, state_size, state_size>();
-        cout << setprecision(9) << fixed;
-        // calculate expected state
-        for (size_t i = 0; i < state_size; i++) {
-            // Calculate the actual result of the matrix multiplication
-            predicted_state_ad(i)->forward();
-            predicted_state_ad(i)->gradient = 1;
-            // Store the result in the predicted state
-            predicted_state(i) = predicted_state_ad(i)->output.value();
-            // Calculate the gradient of the output with respect to the input
-            AD::backward(predicted_state_ad(i));
-            for (size_t j = 0; j < state_size; j++) {
-                // Store the gradient in the F matrix (AKA the jacobian)
-                F(i, j) = state_ad(j)->get_gradient();
-            }
-            // Reset the autodiff
-            predicted_state_ad(i)->reset();
-        }
-        predicted_P = F * P * F.transpose() + Q;
-    }
+    ExtendedKalmanFilter<state_size, control_size, measurement_size> ekf(
+        state, P, Q, R, state_transition, expect_measurement,
+        Eigen::Vector<ADP, control_size>({ { AD::makeConst(0) } })
+    );
     // cout << F << endl;
 
     double meanOfSquErr = 0;
@@ -302,102 +440,21 @@ int main() {
                 Eigen::Vector<ADP, control_size>({ { AD::makeConst(0) } });
         }
         // control =
-        //     Eigen::Vector<ADP, control_size>({ { AD::makeConst(point.t) } });
+        //     Eigen::Vector<ADP, control_size>({ { AD::makeConst(point.t) }
+        //     });
 
         // Get our measurement
         auto alt = point.measured_altitude;
         auto acc = point.measured_acceleration;
         auto measurement =
             Eigen::Vector<double, measurement_size>({ { alt }, { acc } });
-
-        Eigen::Vector<ADP, state_size> predicted_state_ad =
-            Eigen::Vector<ADP, state_size>();
-        for (size_t i = 0; i < state_size; i++) {
-            predicted_state_ad(i) = AD::makeConst(predicted_state(i));
-        }
-        Eigen::Vector<ADP, measurement_size> expected_state_ad =
-            expect_measurement(predicted_state_ad);
-
-        Eigen::Vector<double, measurement_size> expected_state =
-            Eigen::Vector<double, measurement_size>();
-
-        Eigen::Matrix<double, measurement_size, state_size> H =
-            Eigen::Matrix<double, measurement_size, state_size>();
-        // calculate expected state
-        for (size_t i = 0; i < measurement_size; i++) {
-            expected_state_ad(i)->forward();
-            expected_state_ad(i)->gradient = 1;
-            expected_state(i) = expected_state_ad(i)->output.value();
-            AD::backward(expected_state_ad(i));
-            for (size_t j = 0; j < state_size; j++) {
-                H(i, j) = predicted_state_ad(j)->get_gradient();
-            }
-            expected_state_ad(i)->reset();
-        }
-
-        Eigen::Vector<double, measurement_size> residual =
-            measurement - expected_state;
-
-        auto residual_covariance = H * predicted_P * H.transpose() + R;
-        // make kalman gain
-        auto kalman_gain =
-            predicted_P * H.transpose() * residual_covariance.inverse();
-        // update the state using kalman gain
-        state = predicted_state + kalman_gain * residual;
-
-        auto err = state(0) - point.actual_altitude;
+        auto err = ekf.state(0) - point.actual_altitude;
         meanOfSquErr += err * err;
         auto measErr = point.measured_altitude - point.actual_altitude;
         meanOfMeasErr += measErr * measErr;
-        // update the state covariance matrix
-        auto predict_p_help =
-            (Eigen::Matrix<double, state_size, state_size>::Identity() -
-             kalman_gain * H);
-        // if (i == 0) {
-        //     cout << H << endl;
-        // }
-        // P = predict_p_help * predicted_P * predict_p_help.transpose() +
-        //     kalman_gain * R * kalman_gain.transpose();
-        // P = predict_p_help * predicted_P;
-        P = predict_p_help * predicted_P * predict_p_help.transpose() +
-            kalman_gain * R * kalman_gain.transpose();
-
-        Eigen::Vector<ADP, state_size> state_ad =
-            Eigen::Vector<ADP, state_size>();
-        // predict next state
-        for (size_t i = 0; i < state_size; i++) {
-            state_ad(i) = AD::makeConst(state(i));
-        }
-        predicted_state_ad = state_transition(state_ad, control);
-        predicted_state = Eigen::Vector<double, state_size>();
-        Eigen::Matrix<double, state_size, state_size> F =
-            Eigen::Matrix<double, state_size, state_size>();
-        // calculate expected state
-        // std::optional<int> a;
-        // a.reset();
-        for (size_t i = 0; i < state_size; i++) {
-            predicted_state_ad(i)->reset();
-            predicted_state_ad(i)->forward();
-            predicted_state_ad(i)->gradient = 1;
-            predicted_state(i) = predicted_state_ad(i)->output.value();
-            AD::backward(predicted_state_ad(i));
-            for (size_t j = 0; j < state_size; j++) {
-                F(i, j) = state_ad(j)->get_gradient();
-            }
-            predicted_state_ad(i)->reset();
-        }
-
-        // auto predict_p_help =
-        // 	(Eigen::Matrix<double, state_size, state_size>::Identity() -
-        //      kalman_gain * H);
-        // P = predict_p_help * predicted_P * predict_p_help.transpose() +
-        //     kalman_gain * R * kalman_gain.transpose();
-        predicted_P = F * P * F.transpose() + Q;
-        // predicted_state = F * state + G * control + w;
-        // cout << predicted_state(0) << endl;
-        // predicted_P = F * P * F.transpose() + Q;
-        trajectory[i].kalman_altitude = state(0);
-        trajectory[i].kalman_stddev = sqrt(P(0, 0));
+        ekf.update(control, measurement);
+        trajectory[i].kalman_altitude = ekf.state(0);
+        trajectory[i].kalman_stddev = sqrt(ekf.P(0, 0));
         i++;
     }
     cout << "Mean of Squared Error: " << meanOfSquErr / trajectory.size()
