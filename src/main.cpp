@@ -20,17 +20,17 @@ template <
 struct LinearKalmanFilter {
 	/// State vector
 	Eigen::Vector<double, state_size> state =
-		Eigen::Vector<double, state_size>({});
+		Eigen::Vector<double, state_size>();
 
 	/// State covariance matrix
 	/// Start at really high uncertainty, then it will decrease as we get more
 	/// measurements
 	Eigen::Matrix<double, state_size, state_size> P =
-		Eigen::Matrix<double, state_size, state_size>({});
+		Eigen::Matrix<double, state_size, state_size>();
 
 	/// State transition matrix
 	Eigen::Matrix<double, state_size, state_size> F =
-		Eigen::Matrix<double, state_size, state_size>({});
+		Eigen::Matrix<double, state_size, state_size>();
 
 	/// Control matrix
 	Eigen::Matrix<double, state_size, control_size> G =
@@ -47,20 +47,20 @@ struct LinearKalmanFilter {
 
 	/// Measurement matrix
 	Eigen::Matrix<double, measurement_size, state_size> H =
-		Eigen::Matrix<double, measurement_size, state_size>({});
+		Eigen::Matrix<double, measurement_size, state_size>();
 
 	/// Measurement noise covariance matrix
 	Eigen::Matrix<double, measurement_size, measurement_size> R =
-		Eigen::Matrix<double, measurement_size, measurement_size>({});
+		Eigen::Matrix<double, measurement_size, measurement_size>();
 
 	Eigen::Matrix<double, state_size, state_size> I =
 		Eigen::Matrix<double, state_size, state_size>::Identity();
 
 	Eigen::Matrix<double, state_size, state_size> predicted_P =
-		Eigen::Matrix<double, state_size, state_size>({});
+		Eigen::Matrix<double, state_size, state_size>();
 
 	Eigen::Vector<double, state_size> predicted_state =
-		Eigen::Vector<double, state_size>({});
+		Eigen::Vector<double, state_size>();
 
 	LinearKalmanFilter(
 		Eigen::Vector<double, state_size> state,
