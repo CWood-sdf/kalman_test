@@ -314,7 +314,7 @@ int main() {
             {v_xv,  v_v, v_va},
             {v_xa, v_va,  v_a}
     }) *
-	    pow(2.7, 2);
+	    pow(5.7, 2);
 
 	// Just predict the state
 	auto control = Eigen::Vector<double, control_size>({ { 0 } });
