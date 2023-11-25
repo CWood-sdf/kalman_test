@@ -199,9 +199,9 @@ Eigen::Vector<double, state_size> w = Eigen::Vector<double, state_size>({
 /// State covariance matrix
 Eigen::Matrix<double, state_size, state_size> P =
     Eigen::Matrix<double, state_size, state_size>({
-        {100,   0,   0},
-        {  0, 100,   0},
-        {  0,   0, 100}
+        {10000,     0,     0},
+        {    0, 10000,     0},
+        {    0,     0, 10000}
 });
 
 /// State transition matrix
