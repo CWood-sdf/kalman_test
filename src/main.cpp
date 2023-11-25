@@ -14,6 +14,100 @@
 #include <vector>
 using namespace std;
 
+template <
+	const size_t state_size, const size_t control_size,
+	const size_t measurement_size>
+struct LinearKalmanFilter {
+	/// State vector
+	Eigen::Vector<double, state_size> state =
+		Eigen::Vector<double, state_size>({});
+
+	/// State covariance matrix
+	/// Start at really high uncertainty, then it will decrease as we get more
+	/// measurements
+	Eigen::Matrix<double, state_size, state_size> P =
+		Eigen::Matrix<double, state_size, state_size>({});
+
+	/// State transition matrix
+	Eigen::Matrix<double, state_size, state_size> F =
+		Eigen::Matrix<double, state_size, state_size>({});
+
+	/// Control matrix
+	Eigen::Matrix<double, state_size, control_size> G =
+		Eigen::Matrix<double, state_size, control_size>();
+
+	/// Base noise covariance matrix
+	// Eigen::Matrix<double, state_size, state_size> Q_base =
+	// 	Eigen::Matrix<double, state_size, state_size>(
+	// 		{{measurement_stddev * measurement_stddev, 0}, {0, 0}}) *
+	// 	0.1;
+	/// Process noise covariance matrix
+	Eigen::Matrix<double, state_size, state_size> Q =
+		Eigen::Matrix<double, state_size, state_size>();
+
+	/// Measurement matrix
+	Eigen::Matrix<double, measurement_size, state_size> H =
+		Eigen::Matrix<double, measurement_size, state_size>({});
+
+	/// Measurement noise covariance matrix
+	Eigen::Matrix<double, measurement_size, measurement_size> R =
+		Eigen::Matrix<double, measurement_size, measurement_size>({});
+
+	Eigen::Matrix<double, state_size, state_size> I =
+		Eigen::Matrix<double, state_size, state_size>::Identity();
+
+	Eigen::Matrix<double, state_size, state_size> predicted_P =
+		Eigen::Matrix<double, state_size, state_size>({});
+
+	Eigen::Vector<double, state_size> predicted_state =
+		Eigen::Vector<double, state_size>({});
+
+	LinearKalmanFilter(
+		Eigen::Vector<double, state_size> state,
+		Eigen::Matrix<double, state_size, state_size> P,
+		Eigen::Matrix<double, state_size, state_size> F,
+		Eigen::Matrix<double, state_size, control_size> G,
+		Eigen::Matrix<double, state_size, state_size> Q,
+		Eigen::Matrix<double, measurement_size, state_size> H,
+		Eigen::Matrix<double, measurement_size, measurement_size> R,
+		Eigen::Vector<double, control_size> control
+	)
+	  : state(state), P(P), F(F), G(G), Q(Q), H(H), R(R) {
+		predicted_state = F * state + G * control;
+		predicted_P = F * P * F.transpose() + Q;
+	}
+	void update(
+		Eigen::Vector<double, measurement_size> measurement,
+		Eigen::Vector<double, control_size> control,
+		Eigen::Vector<double, state_size> w
+	) {
+
+		auto kalman_gain = predicted_P * H.transpose() *
+		                   (H * predicted_P * H.transpose() + R).inverse();
+		// update the state using kalman gain
+		state =
+			predicted_state + kalman_gain * (measurement - H * predicted_state);
+
+		// calculate error
+		// In the real world, we don't know the actual altitude, but we can use
+		// this to see how well the kalman filter is doing
+		// auto err = state(0) - point.actual_altitude;
+		// meanOfSquErr += err * err;
+		// auto measErr = point.measured_altitude - point.actual_altitude;
+		// meanOfMeasErr += measErr * measErr;
+
+		// update the state covariance matrix
+		auto predict_p_help = (I - kalman_gain * H);
+		P = predict_p_help * predicted_P * predict_p_help.transpose() +
+		    kalman_gain * R * kalman_gain.transpose();
+
+		// predict next state
+		predicted_state = F * state + G * control + w;
+		// cout << predicted_state(0) << endl;
+		predicted_P = F * P * F.transpose() + Q;
+	}
+};
+
 const size_t state_size = 3;
 const size_t control_size = 1;
 const size_t measurement_size = 2;
@@ -103,86 +197,86 @@ std::vector<TrajectoryPoint> generate_rocket_trajectory(
 ) {
 	std::vector<TrajectoryPoint> ret;
 	// stuff to get normal distributions
-	// std::random_device rd;
-	// std::mt19937 gen(rd());
-	// std::normal_distribution<double> normals =
-	// 	std::normal_distribution<double>(0, alt_stddev);
-	// std::normal_distribution<double> acc_normals =
-	// 	std::normal_distribution<double>(0, acc_stddev);
-	// std::normal_distribution<double> motor_noise =
-	// 	std::normal_distribution<double>(0, motor_stddev);
-	// double t = 0;
-	// // state variables
-	// double alt = 0.1;
-	// double vel = 0;
-	// bool force_checked = false;
-	// auto get_motor_force = [&t, &motor_force, &motor_lifetime, &gen,
-	//                         &motor_noise, motor_cuttoff_rate,
-	//                         &force_checked]() {
-	// 	// basically, we have a motor that starts at full force, then ramps down
-	// 	// to 0
-	// 	if (t < motor_lifetime) {
-	// 		return motor_force + motor_noise(gen);
-	// 	} else if (t < motor_lifetime + motor_force / motor_cuttoff_rate) {
-	// 		double new_force =
-	// 			motor_force * (1 - (motor_cuttoff_rate * (t - motor_lifetime)));
-	// 		if (new_force < 0) {
-	// 			new_force = 0;
-	// 		}
-	// 		if (new_force > motor_force) {
-	// 			new_force = 0;
-	// 			if (!force_checked) {
-	// 				cout << "Motor force is too high, "
-	// 						" motor will never cut off "
-	// 					 << endl;
-	// 				force_checked = true;
-	// 			}
-	// 		}
-	// 		return new_force + motor_noise(gen) * new_force / motor_force;
-	// 	} else {
-	// 		return 0.0;
-	// 	}
-	// };
-	// double lastTCheck = 0;
-	// double tCheckDist = 1.0;
-	// double recordInterval = dt;
-	// double lastRecord = 0;
-	// while (alt >= 0) {
-	// 	double motor_force = get_motor_force();
-	// 	double acc = motor_force - gravity_down;
-	// 	double drag_acc = std::abs(drag * vel * vel);
-	// 	if (vel < 0) {
-	// 		acc += drag_acc;
-	// 	} else {
-	// 		acc -= drag_acc;
-	// 	}
-	//
-	// 	// very simple stuff, just integrate the acceleration to get the
-	// 	// velocity and position
-	// 	double deltaV = acc * dt_sim;
-	// 	// double deltaV = cos(t) * dt_sim - dt_sim * 0.01;
-	// 	if (t >= lastRecord + recordInterval) {
-	// 		ret.push_back(TrajectoryPoint(
-	// 			alt, alt + normals(gen), motor_force, t, acc + acc_normals(gen)
-	// 		));
-	// 		lastRecord = t;
-	// 	}
-	//
-	// 	vel += deltaV;
-	// 	alt += vel * dt_sim;
-	//
-	// 	t += dt_sim;
-	// 	if (t >= lastTCheck + tCheckDist) {
-	// 		cout << "t: " << t << ", alt: " << alt << ", vel: " << vel
-	// 			 << ", acc: " << acc << ", drag_acc: " << drag_acc
-	// 			 << ", dv: " << deltaV << endl;
-	// 		lastTCheck = t;
-	// 	}
-	// 	if (t > 200) {
-	// 		ret = {};
-	// 		break;
-	// 	}
-	// }
+	std::random_device rd;
+	std::mt19937 gen(rd());
+	std::normal_distribution<double> normals =
+		std::normal_distribution<double>(0, alt_stddev);
+	std::normal_distribution<double> acc_normals =
+		std::normal_distribution<double>(0, acc_stddev);
+	std::normal_distribution<double> motor_noise =
+		std::normal_distribution<double>(0, motor_stddev);
+	double t = 0;
+	// state variables
+	double alt = 0.1;
+	double vel = 0;
+	bool force_checked = false;
+	auto get_motor_force = [&t, &motor_force, &motor_lifetime, &gen,
+	                        &motor_noise, motor_cuttoff_rate,
+	                        &force_checked]() {
+		// basically, we have a motor that starts at full force, then ramps down
+		// to 0
+		if (t < motor_lifetime) {
+			return motor_force + motor_noise(gen);
+		} else if (t < motor_lifetime + motor_force / motor_cuttoff_rate) {
+			double new_force =
+				motor_force * (1 - (motor_cuttoff_rate * (t - motor_lifetime)));
+			if (new_force < 0) {
+				new_force = 0;
+			}
+			if (new_force > motor_force) {
+				new_force = 0;
+				if (!force_checked) {
+					cout << "Motor force is too high, "
+							" motor will never cut off "
+						 << endl;
+					force_checked = true;
+				}
+			}
+			return new_force + motor_noise(gen) * new_force / motor_force;
+		} else {
+			return 0.0;
+		}
+	};
+	double lastTCheck = 0;
+	double tCheckDist = 1.0;
+	double recordInterval = dt;
+	double lastRecord = 0;
+	while (alt >= 0) {
+		double motor_force = get_motor_force();
+		double acc = motor_force - gravity_down;
+		double drag_acc = std::abs(drag * vel * vel);
+		if (vel < 0) {
+			acc += drag_acc;
+		} else {
+			acc -= drag_acc;
+		}
+
+		// very simple stuff, just integrate the acceleration to get the
+		// velocity and position
+		double deltaV = acc * dt_sim;
+		// double deltaV = cos(t) * dt_sim - dt_sim * 0.01;
+		if (t >= lastRecord + recordInterval) {
+			ret.push_back(TrajectoryPoint(
+				alt, alt + normals(gen), motor_force, t, acc + acc_normals(gen)
+			));
+			lastRecord = t;
+		}
+
+		vel += deltaV;
+		alt += vel * dt_sim;
+
+		t += dt_sim;
+		if (t >= lastTCheck + tCheckDist) {
+			cout << "t: " << t << ", alt: " << alt << ", vel: " << vel
+				 << ", acc: " << acc << ", drag_acc: " << drag_acc
+				 << ", dv: " << deltaV << endl;
+			lastTCheck = t;
+		}
+		if (t > 200) {
+			ret = {};
+			break;
+		}
+	}
 	return ret;
 }
 
@@ -224,10 +318,14 @@ int main() {
 
 	// Just predict the state
 	auto control = Eigen::Vector<double, control_size>({ { 0 } });
-	Eigen::Vector<double, state_size> predicted_state =
-		F * state + G * control + w;
-	Eigen::Matrix<double, state_size, state_size> predicted_P =
-		F * P * F.transpose() + Q;
+	LinearKalmanFilter<state_size, control_size, measurement_size> lkf =
+		LinearKalmanFilter<state_size, control_size, measurement_size>(
+			state, P, F, G, Q, H, R, control
+		);
+	// Eigen::Vector<double, state_size> predicted_state =
+	// 	F * state + G * control + w;
+	// Eigen::Matrix<double, state_size, state_size> predicted_P =
+	// 	F * P * F.transpose() + Q;
 	double meanOfSquErr = 0;
 	double meanOfMeasErr = 0;
 	for (auto& point : trajectory) {
@@ -248,35 +346,36 @@ int main() {
 		auto measurement = Eigen::Vector<double, measurement_size>({
 			{alt, acc}
         });
-
-		// make kalman gain
-		auto kalman_gain = predicted_P * H.transpose() *
-		                   (H * predicted_P * H.transpose() + R).inverse();
-		// update the state using kalman gain
-		state =
-			predicted_state + kalman_gain * (measurement - H * predicted_state);
+		lkf.update(measurement, control, w);
+		//
+		// // make kalman gain
+		// auto kalman_gain = predicted_P * H.transpose() *
+		//                    (H * predicted_P * H.transpose() + R).inverse();
+		// // update the state using kalman gain
+		// state =
+		// 	predicted_state + kalman_gain * (measurement - H * predicted_state);
 
 		// calculate error
 		// In the real world, we don't know the actual altitude, but we can use
 		// this to see how well the kalman filter is doing
-		auto err = state(0) - point.actual_altitude;
+		auto err = lkf.state(0) - point.actual_altitude;
 		meanOfSquErr += err * err;
 		auto measErr = point.measured_altitude - point.actual_altitude;
 		meanOfMeasErr += measErr * measErr;
 
 		// update the state covariance matrix
-		auto predict_p_help =
-			(Eigen::Matrix<double, state_size, state_size>::Identity() -
-		     kalman_gain * H);
-		P = predict_p_help * predicted_P * predict_p_help.transpose() +
-		    kalman_gain * R * kalman_gain.transpose();
-
-		// predict next state
-		predicted_state = F * state + G * control + w;
-		// cout << predicted_state(0) << endl;
-		predicted_P = F * P * F.transpose() + Q;
-		trajectory[i].kalman_altitude = state(0);
-		trajectory[i].kalman_stddev = sqrt(P(0, 0));
+		// auto predict_p_help =
+		// 	(Eigen::Matrix<double, state_size, state_size>::Identity() -
+		//      kalman_gain * H);
+		// P = predict_p_help * predicted_P * predict_p_help.transpose() +
+		//     kalman_gain * R * kalman_gain.transpose();
+		//
+		// // predict next state
+		// predicted_state = F * state + G * control + w;
+		// // cout << predicted_state(0) << endl;
+		// predicted_P = F * P * F.transpose() + Q;
+		trajectory[i].kalman_altitude = lkf.state(0);
+		trajectory[i].kalman_stddev = sqrt(lkf.P(0, 0));
 		i++;
 	}
 	cout << "Mean of Squared Error: " << meanOfSquErr / trajectory.size()
