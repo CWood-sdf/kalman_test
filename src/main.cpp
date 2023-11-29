@@ -109,7 +109,7 @@ struct LinearKalmanFilter {
 };
 
 const size_t state_size = 3;
-const size_t control_size = 1;
+const size_t control_size = 0;
 const size_t measurement_size = 2;
 const double dt = 0.001;
 const double alt_stddev = 10;
@@ -146,7 +146,7 @@ Eigen::Matrix<double, state_size, state_size> F =
 /// Control matrix
 Eigen::Matrix<double, state_size, control_size> G =
 	Eigen::Matrix<double, state_size, control_size>(
-		{ { pow(dt, 3) / 6.0 }, { pow(dt, 2) / 2.0 }, { dt } }
+		// { { pow(dt, 3) / 6.0 }, { pow(dt, 2) / 2.0 }, { dt } }
 	);
 
 /// Base noise covariance matrix
@@ -317,7 +317,7 @@ int main() {
 	    pow(2.7, 2);
 
 	// Just predict the state
-	auto control = Eigen::Vector<double, control_size>({ { 0 } });
+	auto control = Eigen::Vector<double, control_size>();
 	LinearKalmanFilter<state_size, control_size, measurement_size> lkf =
 		LinearKalmanFilter<state_size, control_size, measurement_size>(
 			state, P, F, G, Q, H, R, control
@@ -330,15 +330,17 @@ int main() {
 	double meanOfMeasErr = 0;
 	for (auto& point : trajectory) {
 		// get our control input
-		Eigen::Vector<double, control_size> control;
-		if (point.t < shutoffT) {
-			control = Eigen::Vector<double, control_size>({ { 0 } });
-		} else if (point.t < shutoffT + motorForce / shutoffRate) {
-			control = Eigen::Vector<double, control_size>({ { -shutoffRate *
-			                                                  motorForce } });
-		} else {
-			control = Eigen::Vector<double, control_size>({ { 0 } });
-		}
+		Eigen::Vector<double, control_size> control =
+			Eigen::Vector<double, control_size>();
+		;
+		// if (point.t < shutoffT) {
+		// 	control = Eigen::Vector<double, control_size>({ { 0 } });
+		// } else if (point.t < shutoffT + motorForce / shutoffRate) {
+		// 	control = Eigen::Vector<double, control_size>({ { -shutoffRate *
+		// 	                                                  motorForce } });
+		// } else {
+		// 	control = Eigen::Vector<double, control_size>({ { 0 } });
+		// }
 
 		// obtain the measurement
 		auto alt = point.measured_altitude;
