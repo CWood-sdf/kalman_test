@@ -109,7 +109,7 @@ struct LinearKalmanFilter {
 };
 
 const size_t state_size = 3;
-const size_t control_size = 0;
+const size_t control_size = 1;
 const size_t measurement_size = 2;
 const double dt = 0.001;
 const double alt_stddev = 10;
@@ -146,7 +146,7 @@ Eigen::Matrix<double, state_size, state_size> F =
 /// Control matrix
 Eigen::Matrix<double, state_size, control_size> G =
 	Eigen::Matrix<double, state_size, control_size>(
-		// { { pow(dt, 3) / 6.0 }, { pow(dt, 2) / 2.0 }, { dt } }
+		{ { pow(dt, 3) / 6.0 }, { pow(dt, 2) / 2.0 }, { dt } }
 	);
 
 /// Base noise covariance matrix
@@ -284,7 +284,7 @@ int main() {
 	cout << std::fixed;
 	cout << std::setprecision(2);
 	auto shutoffT = 10;
-	auto shutoffRate = 0.1;
+	auto shutoffRate = 0.01;
 	auto motorForce = 70;
 	auto trajectory = generate_rocket_trajectory(
 		0.00001, motorForce, shutoffT, 29.8, 0.1, 3.5, shutoffRate
@@ -317,7 +317,7 @@ int main() {
 	    pow(2.7, 2);
 
 	// Just predict the state
-	auto control = Eigen::Vector<double, control_size>();
+	auto control = Eigen::Vector<double, control_size>({ { 0 } });
 	LinearKalmanFilter<state_size, control_size, measurement_size> lkf =
 		LinearKalmanFilter<state_size, control_size, measurement_size>(
 			state, P, F, G, Q, H, R, control
@@ -330,17 +330,15 @@ int main() {
 	double meanOfMeasErr = 0;
 	for (auto& point : trajectory) {
 		// get our control input
-		Eigen::Vector<double, control_size> control =
-			Eigen::Vector<double, control_size>();
-		;
-		// if (point.t < shutoffT) {
-		// 	control = Eigen::Vector<double, control_size>({ { 0 } });
-		// } else if (point.t < shutoffT + motorForce / shutoffRate) {
-		// 	control = Eigen::Vector<double, control_size>({ { -shutoffRate *
-		// 	                                                  motorForce } });
-		// } else {
-		// 	control = Eigen::Vector<double, control_size>({ { 0 } });
-		// }
+		Eigen::Vector<double, control_size> control;
+		if (point.t < shutoffT) {
+			control = Eigen::Vector<double, control_size>({ { 0 } });
+		} else if (point.t < shutoffT + motorForce / shutoffRate) {
+			control = Eigen::Vector<double, control_size>({ { -shutoffRate *
+			                                                  motorForce } });
+		} else {
+			control = Eigen::Vector<double, control_size>({ { 0 } });
+		}
 
 		// obtain the measurement
 		auto alt = point.measured_altitude;
@@ -412,44 +410,4 @@ int main() {
 		cout << "Unable to open file";
 	}
 	file.close();
-
-	// auto x = AD::makeConst(3.14 / 2 * 3);
-	// ADP y = sin(x);
-
-	// y->forward();
-	// y->gradient = 1;
-	// AD::backward(y);
-	// cout << y->output.value() << endl;
-	// cout << x->gradient.value() << endl;
-
-	//
-	// auto x2 = AD::makeConst(2);
-	// auto y2 = AD::makeConst(3);
-	// auto x1 = AD::makeConst(3);
-	// auto y1 = AD::makeConst(4);
-	//
-	// Eigen::Matrix<ADP, 2, 2> A = Eigen::Matrix<ADP, 2, 2>({
-	// 	{x1, y1},
-	//        {x2, y2}
-	//    });
-	//
-	// auto z1 = AD::makeConst(3);
-	// auto z2 = AD::makeConst(2);
-	// Eigen::Vector<ADP, 2> b = Eigen::Vector<ADP, 2>({
-	// 	{z1, z2}
-	//    });
-	//
-	// Eigen::Vector<ADP, 2> res = A * b;
-	//
-	// auto res0 = res(0);
-	// res0->forward();
-	// auto res1 = res(1);
-	// res1->forward();
-	//
-	// res(0)->gradient = 1;
-	// res(1)->gradient = 1;
-	// AD::backward(res(0));
-	// AD::backward(res(1));
-	// cout << res(0)->output.value() << endl;
-	// cout << x2->gradient.value() << endl;
 }
