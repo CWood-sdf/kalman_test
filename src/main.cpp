@@ -284,7 +284,7 @@ int main() {
 	cout << std::fixed;
 	cout << std::setprecision(2);
 	auto shutoffT = 10;
-	auto shutoffRate = 0.01;
+	auto shutoffRate = 0.1;
 	auto motorForce = 70;
 	auto trajectory = generate_rocket_trajectory(
 		0.00001, motorForce, shutoffT, 29.8, 0.1, 3.5, shutoffRate
